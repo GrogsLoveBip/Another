@@ -1,3 +1,4 @@
+-- A
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
@@ -36,43 +37,47 @@ local function playHitSound()
     local s = Instance.new("Sound")
     s.SoundId = "rbxassetid://1347140027"
     s.Volume = 1
-    s.Parent = SoundService
-    SoundService:PlayLocalSound(s)
-    s.Ended:Wait()
-    s:Destroy()
+    s.Parent = IAPortable
+    s:Play()
+    Debris:AddItem(s, 2)
 end
 
 local function spawnHitmarker()
     playHitSound()
+    local mouseX, mouseY = UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y
     local clone = Hitmarker:Clone()
     clone.Visible = true
-    clone.Position = UDim2.new(0, Mouse.X, 0, Mouse.Y)
+    clone.Position = UDim2.new(0, mouseX, 0, mouseY)
     clone.Rotation = math.random(-45, 45)
     clone.Parent = IAPortable
     clone:TweenSizeAndPosition(
         UDim2.new(0, 80, 0, 80),
-        UDim2.new(0, Mouse.X, 0, Mouse.Y),
+        UDim2.new(0, mouseX, 0, mouseY),
         "Out", "Quad", 0.15, true
     )
     Debris:AddItem(clone, 0.3)
 end
 
 RunService.RenderStepped:Connect(function()
-    UserInputService.MouseIconEnabled = false
-    Cursor.Position = UDim2.new(0, Mouse.X, 0, Mouse.Y)
-    local target = Mouse.Target
-    if target then
-        local char = target:FindFirstAncestorWhichIsA("Model")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local plr = hum and Players:GetPlayerFromCharacter(char)
-        if plr then
-            Cursor.ImageColor3 = (plr.TeamColor == LocalPlayer.TeamColor) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    pcall(function()
+        UserInputService.MouseIconEnabled = false
+        local mouseLoc = UserInputService:GetMouseLocation()
+        Cursor.Position = UDim2.new(0, mouseLoc.X, 0, mouseLoc.Y)
+
+        local target = Mouse.Target
+        if target then
+            local char = target:FindFirstAncestorWhichIsA("Model")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local plr = hum and Players:GetPlayerFromCharacter(char)
+            if plr then
+                Cursor.ImageColor3 = (plr.TeamColor == LocalPlayer.TeamColor) and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+            else
+                Cursor.ImageColor3 = Color3.new(1,1,1)
+            end
         else
             Cursor.ImageColor3 = Color3.new(1,1,1)
         end
-    else
-        Cursor.ImageColor3 = Color3.new(1,1,1)
-    end
+    end)
 end)
 
 local mt = getrawmetatable(game)
@@ -80,35 +85,45 @@ local oldNamecall = mt.__namecall
 setreadonly(mt, false)
 
 mt.__namecall = newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-    if method == "FireServer" or method == "InvokeServer" then
-        local remoteName = tostring(self)
-        if remoteName:lower():find("damage") 
-        or remoteName:lower():find("hit") 
-        or remoteName:lower():find("bullet") 
-        or remoteName:lower():find("fire") 
-        or remoteName:lower():find("shoot") then
-            for _, v in pairs(args) do
-                if typeof(v) == "Instance" then
-                    local plr = Players:GetPlayerFromCharacter(v.Parent)
-                    if plr and plr ~= LocalPlayer and plr.TeamColor ~= LocalPlayer.TeamColor then
-                        spawnHitmarker()
-                        break
-                    end
-                    if v:IsA("Humanoid") and Players:GetPlayerFromCharacter(v.Parent) then
-                        local hitPlr = Players:GetPlayerFromCharacter(v.Parent)
-                        if hitPlr and hitPlr ~= LocalPlayer and hitPlr.TeamColor ~= LocalPlayer.TeamColor then
+    local ok, res = pcall(function()
+        local method = getnamecallmethod()
+        local args = {...}
+        if (method == "FireServer" or method == "InvokeServer") then
+            local remoteName = tostring(self):lower()
+            if remoteName:find("damage") or remoteName:find("hit") or remoteName:find("bullet") or remoteName:find("fire") or remoteName:find("shoot") or remoteName:find("hitreg") then
+                for _, v in pairs(args) do
+                    if typeof(v) == "Instance" then
+                        local plr = Players:GetPlayerFromCharacter(v.Parent)
+                        if plr and plr ~= LocalPlayer and plr.TeamColor ~= LocalPlayer.TeamColor then
                             spawnHitmarker()
+                            break
+                        end
+                        if v:IsA("Humanoid") then
+                            local hitPlr = Players:GetPlayerFromCharacter(v.Parent)
+                            if hitPlr and hitPlr ~= LocalPlayer and hitPlr.TeamColor ~= LocalPlayer.TeamColor then
+                                spawnHitmarker()
+                                break
+                            end
+                        end
+                    elseif typeof(v) == "string" then
+                        local nameLower = v:lower()
+                        for _, p in pairs(Players:GetPlayers()) do
+                            if p.Name:lower():find(nameLower) or (p.DisplayName and p.DisplayName:lower():find(nameLower)) then
+                                if p ~= LocalPlayer and p.TeamColor ~= LocalPlayer.TeamColor then
+                                    spawnHitmarker()
+                                    break
+                                end
+                            end
                         end
                     end
                 end
             end
         end
-    end
-    if method == "InvokeServer" and tostring(self) == "Shoot" then
-        spawnHitmarker()
-    end
+
+        if method == "InvokeServer" and tostring(self):lower():find("shoot") then
+            spawnHitmarker()
+        end
+    end)
     return oldNamecall(self, ...)
 end)
 
@@ -117,14 +132,16 @@ setreadonly(mt, true)
 spawn(function()
     for _, v in pairs(getgc(true)) do
         if typeof(v) == "function" then
-            local cons = getconstants(v)
-            if table.find(cons, "TakeDamage") or table.find(cons, "Health") then
-                local upvalues = getupvalues(v)
-                for _, upv in pairs(upvalues) do
-                    if typeof(upv) == "Instance" and upv:IsA("Humanoid") then
-                        local plr = Players:GetPlayerFromCharacter(upv.Parent)
-                        if plr and plr ~= LocalPlayer and plr.TeamColor ~= LocalPlayer.TeamColor then
-                            spawnHitmarker()
+            local success, cons = pcall(function() return getconstants(v) end)
+            if success and (table.find(cons, "TakeDamage") or table.find(cons, "Health")) then
+                local ok, upvalues = pcall(function() return getupvalues(v) end)
+                if ok then
+                    for _, upv in pairs(upvalues) do
+                        if typeof(upv) == "Instance" and upv:IsA("Humanoid") then
+                            local plr = Players:GetPlayerFromCharacter(upv.Parent)
+                            if plr and plr ~= LocalPlayer and plr.TeamColor ~= LocalPlayer.TeamColor then
+                                spawnHitmarker()
+                            end
                         end
                     end
                 end
